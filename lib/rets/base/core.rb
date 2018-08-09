@@ -296,7 +296,6 @@ module RETS
           sax = RETS::Base::SAXSearch.new(@rets_data, block)
           Nokogiri::XML::SAX::Parser.new(sax).parse_io(stream)
 
-
           if args[:disable_stream]
             @request_size, @request_hash = response.body.length, Digest::SHA1.hexdigest(response.body)
           else
