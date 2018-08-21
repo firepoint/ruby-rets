@@ -236,6 +236,7 @@ module RETS
       # @option args [Integer, Optional] :open_timeout How long to wait for connection to open before giving up
       # @option args [Boolean, Optional] :disable_stream Disables the streaming setup for data and instead loads it all and then parses
       # @option args [Symbol, Optional] :http_method Specifies what http method to use for the request - GET/POST - GET by default
+      # @option args [String, Optional] :data_format Specifies what data format to use: (compact_decoded|standard_xml). Defaults to compact_decoded. standard_xml will yield up to 8MB of raw XML payload
       #
       # @yield Called for every <DATA></DATA> group from the RETS server
       # @yieldparam [Hash] :data One record of data from the RETS server
@@ -257,7 +258,8 @@ module RETS
 
         req = {:url => @urls[:search], :read_timeout => args[:read_timeout], :open_timeout => args[:open_timeout], http_method: args[:http_method]}
         query_type = ['DMQL', 'DMQL2'].include?(args[:query_type].try(:upcase)) ? args[:query_type] : 'DMQL2'
-        req[:params] = {:Format => "COMPACT-DECODED", :SearchType => args[:search_type], :QueryType => query_type, :Query => args[:query], :Class => args[:class], :Limit => args[:limit], :Offset => args[:offset], :RestrictedIndicator => args[:restricted]}
+        format = args[:data_format].to_s.downcase == 'standard_xml' ? 'STANDARD-XML' : 'COMPACT-DECODED'
+        req[:params] = {:Format => format, :SearchType => args[:search_type], :QueryType => query_type, :Query => args[:query], :Class => args[:class], :Limit => args[:limit], :Offset => args[:offset], :RestrictedIndicator => args[:restricted]}
         req[:params][:Select] = args[:select].join(",") if args[:select].is_a?(Array)
         req[:params][:StandardNames] = 1 if args[:standard_names]
 
@@ -284,6 +286,11 @@ module RETS
             @request_time = Time.now.utc.to_f - start
           else
             stream = RETS::StreamHTTP.new(response)
+          end
+
+          if format == 'STANDARD-XML'
+            block.call stream.read(1024 * 1024 * 8)
+            return
           end
 
           sax = RETS::Base::SAXSearch.new(@rets_data, block)
