@@ -225,123 +225,124 @@ module RETS
         request = Net::HTTP::Get.new request_uri, headers
       end
 
-      http.start do
-        http.request(request, body_data) do |response|
-          # Pass along the cookies
-          # Some servers will continually call Set-Cookie with the same value for every single request
-          # to avoid authentication problems from cookies being stomped over (which is sad, nobody likes having their cookies crushed).
-          # We keep a hash of every cookie set and only update it if something changed
-          if response.header["set-cookie"]
-            cookies_changed = nil
 
-            response.header.get_fields("set-cookie").each do |cookie|
-              key, value = cookie.split(";").first.split("=")
-              key.strip!
-              value.try(:strip!)
+      with_rate_limit do
+        http.start do
+          http.request(request, body_data) do |response|
+            # Pass along the cookies
+            # Some servers will continually call Set-Cookie with the same value for every single request
+            # to avoid authentication problems from cookies being stomped over (which is sad, nobody likes having their cookies crushed).
+            # We keep a hash of every cookie set and only update it if something changed
+            if response.header["set-cookie"]
+              cookies_changed = nil
 
-              # If it's a RETS-Session-ID, it needs to be shoved into the RETS-UA-Authorization field
-              # Save the RETS-Session-ID so it can be used with RETS-UA-Authorization
-              if key.downcase == "rets-session-id"
-                @rets_data[:session_id] = value
-                self.setup_ua_authorization(@rets_data) if @rets_data[:version]
+              response.header.get_fields("set-cookie").each do |cookie|
+                key, value = cookie.split(";").first.split("=")
+                key.strip!
+                value.try(:strip!)
+
+                # If it's a RETS-Session-ID, it needs to be shoved into the RETS-UA-Authorization field
+                # Save the RETS-Session-ID so it can be used with RETS-UA-Authorization
+                if key.downcase == "rets-session-id"
+                  @rets_data[:session_id] = value
+                  self.setup_ua_authorization(@rets_data) if @rets_data[:version]
+                end
+
+                cookies_changed = true if @cookie_list[key] != value
+                @cookie_list[key] = value
               end
 
-              cookies_changed = true if @cookie_list[key] != value
-              @cookie_list[key] = value
-            end
-
-            if cookies_changed
-              @headers.merge!("Cookie" => @cookie_list.map {|k, v| "#{k}=#{v}"}.join("; "))
-            end
-          end
-
-          # Rather than returning HTTP 401 when User-Agent authentication is needed, Retsiq returns HTTP 200
-          # with RETS error 20037. If we get a 20037, will let it pass through and handle it as if it was a HTTP 401.
-          # Retsiq apparently returns a 20041 now instead of a 20037 for the same use case.
-          # StratusRETS returns 20052 for an expired season
-          rets_code = nil
-          if response.code != "401" and ( response.code != "200" or args[:check_response] )
-            if response.body =~ /<RETS/i
-              rets_code, text = self.get_rets_response(Nokogiri::XML(response.body).xpath("//RETS").first)
-              unless rets_code == "20037" or rets_code == "20041" or rets_code == "20052" or rets_code == "0"
-                raise RETS::APIError.new("#{rets_code}: #{text}", rets_code, text)
-              end
-
-            elsif !args[:check_response]
-              raise RETS::HTTPError.new("#{response.code}: #{response.message}", response.code, response.message)
-            end
-          end
-
-          # Strictly speaking, we do not need to set a RETS-Version in most cases, if RETS-UA-Authorization is not used
-          # It makes more sense to be safe and set it. Innovia at least does not set this until authentication is successful
-          # which is why this check is also here for HTTP 200s and not just 401s
-          if response.code == "200" and !@rets_data[:version] and response.header["rets-version"] != ""
-            @rets_data[:version] = response.header["rets-version"]
-          end
-
-          # Digest can become stale requiring us to reload data
-          if @auth_mode == :digest and response.header["www-authenticate"] =~ /stale=true/i
-            save_digest(get_digest(response.header.get_fields("www-authenticate")))
-
-            args[:block] ||= block
-            return self.request(args)
-
-          elsif response.code == "401" or rets_code == "20037" or rets_code == "20041" or rets_code == "20052"
-            raise RETS::Unauthorized, "Cannot login, check credentials" if ( @auth_mode and @retried_request ) or ( @retried_request and rets_code == "20037" )
-            @retried_request = true
-
-            # We already have an auth mode, and the request wasn't retried.
-            # Meaning we know that we had a successful authentication but something happened so we should relogin.
-            if @auth_mode
-              @headers.delete("Cookie")
-              @cookie_list = {}
-
-              self.request(:url => login_uri)
-              return self.request(args.merge(:block => block))
-            end
-
-            # Find a valid way of authenticating to the server as some will support multiple methods
-            if response.header.get_fields("www-authenticate") and !response.header.get_fields("www-authenticate").empty?
-              digest = get_digest(response.header.get_fields("www-authenticate"))
-              if digest
-                save_digest(digest)
-                @auth_mode = :digest
-              else
-                @headers.merge!("Authorization" => create_basic)
-                @auth_mode = :basic
-              end
-
-              unless @auth_mode
-                raise RETS::HTTPError.new("Cannot authenticate, no known mode found", response.code)
+              if cookies_changed
+                @headers.merge!("Cookie" => @cookie_list.map {|k, v| "#{k}=#{v}"}.join("; "))
               end
             end
 
-            # Check if we need to deal with User-Agent authorization
-            if response.header["rets-version"] and response.header["rets-version"] != ""
+            # Rather than returning HTTP 401 when User-Agent authentication is needed, Retsiq returns HTTP 200
+            # with RETS error 20037. If we get a 20037, will let it pass through and handle it as if it was a HTTP 401.
+            # Retsiq apparently returns a 20041 now instead of a 20037 for the same use case.
+            # StratusRETS returns 20052 for an expired season
+            rets_code = nil
+            if response.code != "401" and ( response.code != "200" or args[:check_response] )
+              if response.body =~ /<RETS/i
+                rets_code, text = self.get_rets_response(Nokogiri::XML(response.body).xpath("//RETS").first)
+                unless rets_code == "20037" or rets_code == "20041" or rets_code == "20052" or rets_code == "0"
+                  raise RETS::APIError.new("#{rets_code}: #{text}", rets_code, text)
+                end
+
+              elsif !args[:check_response]
+                raise RETS::HTTPError.new("#{response.code}: #{response.message}", response.code, response.message)
+              end
+            end
+
+            # Strictly speaking, we do not need to set a RETS-Version in most cases, if RETS-UA-Authorization is not used
+            # It makes more sense to be safe and set it. Innovia at least does not set this until authentication is successful
+            # which is why this check is also here for HTTP 200s and not just 401s
+            if response.code == "200" and !@rets_data[:version] and response.header["rets-version"] != ""
               @rets_data[:version] = response.header["rets-version"]
-
-            # If we get a 20037 error, it could be due to not having a RETS-Version set
-            # Under Innovia, passing RETS/1.7 will cause some errors
-            # because they don't pass the RETS-Version header until a successful login which is a HTTP 200
-            # They also don't use RETS-UA-Authorization, and it's better to not imply the RETS-Version header
-            # unless necessary, so will only do it for 20037 errors now.
-            elsif !@rets_data[:version] and rets_code == "20037"
-              @rets_data[:version] = "RETS/1.7"
             end
 
-            self.setup_ua_authorization(@rets_data)
+            # Digest can become stale requiring us to reload data
+            if @auth_mode == :digest and response.header["www-authenticate"] =~ /stale=true/i
+              save_digest(get_digest(response.header.get_fields("www-authenticate")))
 
-            args[:block] ||= block
-            return self.request(args)
+              args[:block] ||= block
+              return self.request(args)
 
-          # We just tried to auth and don't have access to the original block in yieldable form
-          elsif args[:block]
-            @retried_request = nil
-            args.delete(:block).call(response)
+            elsif response.code == "401" or rets_code == "20037" or rets_code == "20041" or rets_code == "20052"
+              raise RETS::Unauthorized, "Cannot login, check credentials" if ( @auth_mode and @retried_request ) or ( @retried_request and rets_code == "20037" )
+              @retried_request = true
 
-          elsif block_given?
-            @retried_request = nil
-            with_rate_limit do
+              # We already have an auth mode, and the request wasn't retried.
+              # Meaning we know that we had a successful authentication but something happened so we should relogin.
+              if @auth_mode
+                @headers.delete("Cookie")
+                @cookie_list = {}
+
+                self.request(:url => login_uri)
+                return self.request(args.merge(:block => block))
+              end
+
+              # Find a valid way of authenticating to the server as some will support multiple methods
+              if response.header.get_fields("www-authenticate") and !response.header.get_fields("www-authenticate").empty?
+                digest = get_digest(response.header.get_fields("www-authenticate"))
+                if digest
+                  save_digest(digest)
+                  @auth_mode = :digest
+                else
+                  @headers.merge!("Authorization" => create_basic)
+                  @auth_mode = :basic
+                end
+
+                unless @auth_mode
+                  raise RETS::HTTPError.new("Cannot authenticate, no known mode found", response.code)
+                end
+              end
+
+              # Check if we need to deal with User-Agent authorization
+              if response.header["rets-version"] and response.header["rets-version"] != ""
+                @rets_data[:version] = response.header["rets-version"]
+
+              # If we get a 20037 error, it could be due to not having a RETS-Version set
+              # Under Innovia, passing RETS/1.7 will cause some errors
+              # because they don't pass the RETS-Version header until a successful login which is a HTTP 200
+              # They also don't use RETS-UA-Authorization, and it's better to not imply the RETS-Version header
+              # unless necessary, so will only do it for 20037 errors now.
+              elsif !@rets_data[:version] and rets_code == "20037"
+                @rets_data[:version] = "RETS/1.7"
+              end
+
+              self.setup_ua_authorization(@rets_data)
+
+              args[:block] ||= block
+              return self.request(args)
+
+            # We just tried to auth and don't have access to the original block in yieldable form
+            elsif args[:block]
+              @retried_request = nil
+              args.delete(:block).call(response)
+
+            elsif block_given?
+              @retried_request = nil
               yield response
             end
           end
