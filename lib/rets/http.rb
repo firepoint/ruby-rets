@@ -355,19 +355,19 @@ module RETS
         rate_limit_interval = 60
         if (Time.now.to_i - @last_interval_at) > rate_limit_interval
           @last_interval_at = Time.now.to_i
-          @request_count = 0
-        elsif @request_count >= @config[:rate_limit]
+          @rate_limit_request_count = 0
+        elsif @rate_limit_request_count >= @config[:rate_limit]
           wait_duration = 60 - (Time.now.to_i - @last_interval_at)
           sleep wait_duration
           @last_interval_at = Time.now.to_i
-          @request_count = 0
+          @rate_limit_request_count = 0
         end
       end
 
       yield if block_given?
 
       @last_interval_at ||= Time.now.to_i
-      @request_count = (@request_count || 0) + 1
+      @rate_limit_request_count = (@rate_limit_request_count || 0) + 1
     end
   end
 end
