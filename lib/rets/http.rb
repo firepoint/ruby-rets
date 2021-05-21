@@ -200,6 +200,8 @@ module RETS
         http.verify_mode = @config[:http][:verify_mode] || OpenSSL::SSL::VERIFY_NONE
         http.ca_file = @config[:http][:ca_file] if @config[:http][:ca_file]
         http.ca_path = @config[:http][:ca_path] if @config[:http][:ca_path]
+        http.ssl_version = @config[:http][:ssl_version] if @config[:http][:ssl_version]
+        http.ssl_cipher = @config[:http][:ssl_cipher] if @config[:http][:ssl_cipher]
       end
 
       body_data = nil

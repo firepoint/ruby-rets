@@ -19,6 +19,8 @@ module RETS
     #   * :verify_mode [Integer, Optional] How to verify the SSL certificate when connecting through HTTPS, either OpenSSL::SSL::VERIFY_PEER or OpenSSL::SSL::VERIFY_NONE, defaults to OpenSSL::SSL::VERIFY_NONE
     #   * :ca_file [String, Optional] Path to the CA certification file in PEM format
     #   * :ca_path [String, Optional] Path to the directory containing CA certifications in PEM format
+    #   * :ssl_version [String, Optional] SSL version used for HTTP Client
+    #   * :ssl_cipher [String, Optional] Cipher used for TLS
     #
     # @raise [ArgumentError]
     # @raise [RETS::APIError]
